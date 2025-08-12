@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ThemeProvider, createTheme, CssBaseline,
   Container, Box, Stack, Typography, Button, IconButton, Chip,
-  Card, CardContent, CardActions, Divider, Tooltip, Snackbar, Alert, TextField
+  Card, CardContent, CardActions, Divider, Tooltip, Snackbar, Alert, TextField,
+  Dialog, DialogTitle, DialogContent, DialogActions
 } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
@@ -16,7 +17,8 @@ import ScreenShareIcon from "@mui/icons-material/ScreenShare";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import FullscreenIcon from "@mui/icons-material/Fullscreen";
 import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
-import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
 import { supabase } from "./supabase";
 
@@ -124,6 +126,10 @@ export default function App(): JSX.Element {
     return localStorage.getItem("rosco-url") || "/questions.json";
   });
 
+  // Dialogs
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+
   useEffect(() => { setTimerInput(formatSeconds(seconds)); }, [seconds]);
 
   // Cargar por URL (opcional, via proxy /api/fetch-json)
@@ -195,7 +201,6 @@ export default function App(): JSX.Element {
   // Carga inicial (owner): si viene ?json, lo usa
   useEffect(() => {
     if (role !== "owner") return;
-    const jsonParam = new URLSearchParams(window.location.search).get("json");
     if (jsonParam) {
       const initialUrl = decodeURIComponent(jsonParam);
       const finalUrl = initialUrl.startsWith("/api/")
@@ -217,6 +222,7 @@ export default function App(): JSX.Element {
     if (seconds === 0 && running && role === "owner") {
       setRunning(false);
       setFinished(true);
+      setResultsOpen(true); // abrir cartel de resultados
       broadcastAll();
     }
   }, [seconds, running, role]);
@@ -248,7 +254,6 @@ export default function App(): JSX.Element {
     setJoined(false);
 
     channel.subscribe((status) => {
-      // 'SUBSCRIBED' | 'TIMED_OUT' | 'CLOSED' | 'CHANNEL_ERROR'
       if (status === "SUBSCRIBED") setJoined(true);
     });
 
@@ -332,6 +337,21 @@ export default function App(): JSX.Element {
   // Lógica de juego
   const score = useMemo(() => items.filter(i => i.status === "bien").length, [items]);
   const wrong = useMemo(() => items.filter(i => i.status === "mal").length, [items]);
+  const isComplete = useMemo(
+    () => items.length > 0 && items.every(i => i.status === "bien" || i.status === "mal"),
+    [items]
+  );
+
+  useEffect(() => {
+    if (role !== "owner") return;
+    if (isComplete && !finished) {
+      setRunning(false);
+      setFinished(true);
+      setResultsOpen(true); // mostramos el cartel de resultados
+      broadcastAll();       // sincroniza con el participante
+    }
+  }, [isComplete, finished, role]);
+
 
   function nextIndex(from = idx) {
     if (!items.length) return 0;
@@ -358,6 +378,7 @@ export default function App(): JSX.Element {
     if (role !== "owner") return;
     setItems(arr => arr.map(x => ({ ...x, status: "pendiente" as Status })));
     setIdx(0); setSeconds(defaultSeconds); setFinished(false); setRunning(false);
+    setResultsOpen(false); // cerrar modal si estaba abierto
   }
 
   function setTimer(newSeconds: number) {
@@ -402,24 +423,57 @@ export default function App(): JSX.Element {
         }}
       >
         <Card ref={cardRef} sx={{ width: "100%", maxWidth: 900, position: "relative" }}>
+
+
           <CardContent sx={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 2 }}>
             {/* Cabecera: solo dueño */}
             {role === "owner" && (
               <>
-                <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2}>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "flex-start", sm: "center" }}
+                  spacing={2}
+                >
                   <Typography variant="h5">Rosco — Dueño</Typography>
-                  <Stack direction="row" spacing={1}>
-                    <Button size="small" variant="outlined" startIcon={<ScreenShareIcon />} onClick={openPlayer}>
+
+                  {/* Grupo de botones (derecha) */}
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    flexWrap="wrap"
+                    useFlexGap
+                    sx={{ rowGap: 1, columnGap: 1 }}
+                  >
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<HelpOutlineIcon />}
+                      onClick={() => setHelpOpen(true)}
+                    >
+                      Instrucciones
+                    </Button>
+
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<ScreenShareIcon />}
+                      onClick={openPlayer}
+                    >
                       Abrir vista participante
                     </Button>
+
                     <Tooltip title="Copiar link de participante">
-                      <IconButton onClick={copyPlayerLink}><ContentCopyIcon /></IconButton>
+                      <IconButton onClick={copyPlayerLink}>
+                        <ContentCopyIcon />
+                      </IconButton>
                     </Tooltip>
                   </Stack>
                 </Stack>
                 <Divider />
               </>
             )}
+
 
             {/* Barra de info */}
             <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2}>
@@ -529,10 +583,24 @@ export default function App(): JSX.Element {
                     }}
                   />
                 </Button>
+
+                {/* (Opcional) Cargar por URL vía proxy /api/fetch-json */}
+                <TextField
+                  size="small"
+                  label="URL del JSON (opcional)"
+                  value={customUrl}
+                  onChange={(e) => setCustomUrl(e.target.value)}
+                  placeholder="/questions.json"
+                  sx={{ minWidth: 320 }}
+                />
+                <Button variant="text" onClick={() => loadFromUrl(`/api/fetch-json?url=${encodeURIComponent(customUrl)}`)}>
+                  Cargar desde URL
+                </Button>
               </Stack>
             )}
 
-            {finished && (
+            {/* Bloque de resultados en body (opcional). Se oculta si el modal está abierto */}
+            {finished && !resultsOpen && (
               <Box sx={{ mt: 2, textAlign: "center" }}>
                 <Typography variant="h6">Resultado</Typography>
                 <Typography>
@@ -576,6 +644,104 @@ export default function App(): JSX.Element {
           )}
         </Card>
       </Container>
+
+      {/* Dialogo de resultados al finalizar */}
+      <Dialog open={resultsOpen} onClose={() => setResultsOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Resultado de la partida</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ mb: 1 }}>
+            ✔️ Correctas: <b>{score}</b> · ❌ Incorrectas: <b>{wrong}</b> · 🔁 Pasadas: <b>{items.filter(i => i.status === "pasada").length}</b>
+          </Typography>
+          <Divider sx={{ my: 1.5 }} />
+          <Stack spacing={0.5} sx={{ maxHeight: 400, overflow: "auto" }}>
+            {items.map((it, i) => (
+              <Typography key={i} variant="body2">
+                <b>[{it.letter}]</b> {it.prompt} — <b>{it.answer}</b>
+              </Typography>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResultsOpen(false)}>Cerrar</Button>
+          {role === "owner" && <Button variant="contained" onClick={reset}>Reiniciar</Button>}
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialogo de instrucciones */}
+      <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Instrucciones</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="subtitle2" gutterBottom>Roles</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            • <b>Dueño</b>: controla el juego, marca Bien/Mal/Pasapalabra, maneja el tiempo, carga el banco.<br />
+            • <b>Participante</b>: solo visualiza. Abrí la vista con “Abrir vista participante” o usando <code>?view=player</code>.
+          </Typography>
+
+          <Typography variant="subtitle2" gutterBottom>Salas (realtime)</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            • Cada sesión tiene un <b>room</b> en la URL. Compartí la URL con <code>?view=player&amp;room=XXXXXX</code> a la otra PC.<br />
+            • El estado se sincroniza en tiempo real (requiere Supabase configurado).
+          </Typography>
+
+          <Typography variant="subtitle2" gutterBottom>
+            Cargar preguntas
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            • <b>Cargar JSON</b>: elegí un archivo local (no se sube a ningún lado).<br />
+            • El formato debe ser un array de objetos, por ejemplo:
+          </Typography>
+
+          <Box
+            component="pre"
+            sx={{
+              p: 1,
+              borderRadius: 1,
+              bgcolor: "background.default",
+              fontSize: "0.8rem",
+              overflowX: "auto",
+              mb: 2
+            }}
+          >
+            {`[
+                {
+                  "letter": "A",
+                  "rule": "empieza",
+                  "prompt": "Capital de Argentina",
+                  "answer": "Buenos Aires"
+                },
+                {
+                  "letter": "B",
+                  "rule": "contiene",
+                  "prompt": "Mamífero marino de gran tamaño",
+                  "answer": "Ballena"
+                },
+                {
+                  "letter": "C",
+                  "rule": "termina",
+                  "prompt": "País famoso por sus pirámides",
+                  "answer": "Egipto"
+                }
+              ]`}
+          </Box>
+
+
+          <Typography variant="subtitle2" gutterBottom>Controles</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            • <b>Empezar/Pausar/Reiniciar</b> controlan el tiempo.<br />
+            • <b>Pasapalabra</b> deja la letra pendiente para una vuelta siguiente.<br />
+            • Al terminar el tiempo, aparece un <b>resumen</b> con todas las respuestas.
+          </Typography>
+
+          <Typography variant="subtitle2" gutterBottom>Consejos</Typography>
+          <Typography variant="body2">
+            • En el participante, usá <b>pantalla completa</b> con el botón flotante.<br />
+            • Si algo no sincroniza, verificá que la URL comparta el mismo <b>room</b>.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setHelpOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar open={!!snack} autoHideDuration={3500} onClose={() => setSnack(undefined)}>
         <Alert severity="info" variant="filled" onClose={() => setSnack(undefined)}>{snack}</Alert>
