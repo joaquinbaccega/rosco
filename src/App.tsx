@@ -529,19 +529,6 @@ export default function App(): JSX.Element {
                     }}
                   />
                 </Button>
-
-                {/* (Opcional) Cargar por URL vía proxy /api/fetch-json */}
-                <TextField
-                  size="small"
-                  label="URL del JSON (opcional)"
-                  value={customUrl}
-                  onChange={(e) => setCustomUrl(e.target.value)}
-                  placeholder="/questions.json"
-                  sx={{ minWidth: 320 }}
-                />
-                <Button variant="text" onClick={() => loadFromUrl(`/api/fetch-json?url=${encodeURIComponent(customUrl)}`)}>
-                  Cargar desde URL
-                </Button>
               </Stack>
             )}
 
